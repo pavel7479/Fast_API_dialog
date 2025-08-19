@@ -1,0 +1,30 @@
+# Python
+**/__pycache__/
+*.py[cod]
+.python-version
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# System
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Node.js (если есть ecosystem.config.js)
+node_modules/
+npm-debug.log*
+
+# Ваши кастомные исключения (если нужно)
+=2.7.0/instance/

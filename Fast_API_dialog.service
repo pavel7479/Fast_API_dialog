@@ -1,0 +1,23 @@
+[Unit]
+Description=Fast_API_dialog Application
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/root/Fast_API_dialog
+
+# Загружаем переменные из .env
+EnvironmentFile=/root/Fast_API_dialog/.env
+
+# CUDA и Python пути оставляем отдельными
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
+Environment=PYTHONPATH=/root/Fast_API_dialog/app
+
+ExecStart=/root/Fast_API_dialog/.venv/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
