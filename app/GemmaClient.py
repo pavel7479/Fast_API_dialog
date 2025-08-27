@@ -7,6 +7,8 @@ from typing import Optional
 from requests.exceptions import RequestException, Timeout
 from requests import post
 from app.config import settings
+from langchain_core.output_parsers import JsonOutputParser
+from app.GemmaAnalysis import GemmaAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -15,16 +17,27 @@ class GemmaClient:
         self.base_url = base_url or settings.GEMMA_BASE_URL
         self.model_name = model_name or settings.GEMMA_MODEL_NAME
         self.default_timeout = default_timeout or settings.GEMMA_TIMEOUT
+        self.json_parser = JsonOutputParser(pydantic_object=GemmaAnalysis)
 
     def load_text_file(self, filepath: str) -> str:
         with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
 
     def build_prompt(self, text: str) -> str:
+        format_instructions = self.json_parser.get_format_instructions()
+        
         if settings.USER_PROMPT:
-            return settings.USER_PROMPT.format(text=text)
-        # fallback шаблон
-        return f"Ты получил текст диалога:\n\n{text}\n\nПроанализируй и ответь по пунктам."
+            base_prompt = settings.USER_PROMPT.format(text=text)
+            return f"{base_prompt}\n\n{format_instructions}"
+        
+        # fallback с инструкциями
+        return f"""Проанализируй этот разговор и верни ответ строго в JSON формате:
+
+    {text}
+
+    {format_instructions}
+
+    ТОЛЬКО JSON, никакого лишнего текста!"""
 
     def send_prompt(
         self,
@@ -67,6 +80,11 @@ class GemmaClient:
             ]
         }
 
+        print("\n" + "="*40 + " GEMMA PROMPT " + "="*40)
+        print("SYSTEM PROMPT:\n", system_prompt)
+        print("\nUSER PROMPT:\n", user_prompt)
+        print("="*95 + "\n")
+
         url = f"{self.base_url.rstrip('/')}/api/chat"
         last_exc = None
         for attempt in range(1, retries + 1):
@@ -83,7 +101,10 @@ class GemmaClient:
                 if not isinstance(response_text, str):
                     response_text = str(response_text)
                 logger.info("Received response from Gemma len=%d", len(response_text))
-                return response_text
+
+                parsed_response = self.json_parser.parse(response_text)
+                return parsed_response
+                # return response_text
             except Timeout as e:
                 last_exc = e
                 logger.warning("Timeout on Gemma request (attempt %d): %s", attempt, e)

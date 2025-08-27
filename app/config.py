@@ -85,5 +85,10 @@ settings.USER_PROMPT = _load_text_from_path(settings.USER_PROMPT_PATH, "USER_PRO
 def _short_preview(s: str, length: int = 200) -> str:
     return (s[:length] + ("... [truncated]" if len(s) > length else ""))
 
-logger.info("SYSTEM_PROMPT loaded: length=%d chars; preview: %s", len(settings.SYSTEM_PROMPT), _short_preview(settings.SYSTEM_PROMPT))
-logger.info("USER_PROMPT loaded: length=%d chars; preview: %s", len(settings.USER_PROMPT), _short_preview(settings.USER_PROMPT))
+# Если нужен короткий вид — оставь эту версию
+# logger.info("SYSTEM_PROMPT loaded: length=%d chars; preview: %s", len(settings.SYSTEM_PROMPT), _short_preview(settings.SYSTEM_PROMPT))
+# logger.info("USER_PROMPT loaded: length=%d chars; preview: %s", len(settings.USER_PROMPT), _short_preview(settings.USER_PROMPT))
+
+# Если нужен полный вид — включи эти строки вместо превью
+logger.info("SYSTEM_PROMPT FULL:\n%s", settings.SYSTEM_PROMPT)
+logger.info("USER_PROMPT FULL:\n%s", settings.USER_PROMPT)

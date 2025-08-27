@@ -5,12 +5,12 @@ import glob
 import tempfile
 from tqdm import tqdm
 import logging
-
+import json 
+from app.GemmaAnalysis import GemmaAnalysis
 from app.Transcriber import Transcriber
 from app.GemmaClient import GemmaClient
-import os
 from typing import Optional
-
+import re
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -114,66 +114,91 @@ class AudioProcessingPipeline:
                 self.gemma.save_response(txt_path, answer, self.gemma_output_folder)
             except Exception as e:
                 print(f"❌ Ошибка при анализе {txt_path}: {e}")
-
-    # def process_bytes(self, audio_bytes: bytes, filename: Optional[str] = None, language: Optional[str] = None, beam_size: Optional[int] = None) -> dict:
-    #     t0 = time.time()
-    #     language = language or self.language
-    #     beam_size = beam_size or self.beam_size
-
-    #     suffix = ".wav"
-    #     if filename:
-    #         ext = os.path.splitext(filename)[1]
-    #         if ext:
-    #             suffix = ext
-
-    #     fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-    #     os.close(fd)
+    # def _fallback_parsing(self, raw_answer: str) -> GemmaAnalysis:
+    #     """
+    #     Запасной парсинг, если JSON сломан.
+    #     Пытается извлечь данные через регулярные выражения.
+    #     """
     #     try:
-    #         with open(tmp_path, "wb") as f:
-    #             f.write(audio_bytes)
+    #         # Пытаемся найти JSON внутри текста (если Gemma добавила пояснения)
+    #         json_match = re.search(r'\{.*\}', raw_answer, re.DOTALL)
+    #         if json_match:
+    #             try:
+    #                 data = json.loads(json_match.group())
+    #                 return GemmaAnalysis(**data)
+    #             except:
+    #                 pass  # Пробуем другие методы
 
-    #         t1 = time.time()
-    #         segments = self.transcriber.transcribe(tmp_path, language=language, beam_size=beam_size)
-    #         transcript_text = " ".join(getattr(s, "text", str(s)) for s in segments).strip()
-    #         t_trans = time.time() - t1
+    #         # Извлекаем отдельные поля через регулярки
+    #         grade_match = re.search(r'"grade":\s*(\d)', raw_answer)
+    #         resume_match = re.search(r'"resume":\s*"([^"]+)"', raw_answer)
+    #         analysis_match = re.search(r'"analysis":\s*"([^"]+)"', raw_answer)
+    #         problems_match = re.search(r'"problems":\s*"([^"]+)"', raw_answer)
 
-    #         t2 = time.time()
-
-
-    #         system_prompt = settings.SYSTEM_PROMPT or "Анализируй текст разговора строго по инструкциям."
-    #         user_prompt = self.gemma.build_prompt(transcript_text)
-
-    #         log_prompts(system_prompt, user_prompt, transcript_text)
-    #         answer = self.gemma.send_prompt(
-    #             user_prompt=user_prompt,
-    #             system_prompt=system_prompt,
-    #             temperature=settings.GEMMA_TEMPERATURE,
-    #             repetition_penalty=settings.GEMMA_REPEAT_PENALTY,
-    #             do_sample=settings.GEMMA_DO_SAMPLE,
-    #             num_beams=settings.GEMMA_NUM_BEAMS,
-    #             timeout=settings.GEMMA_TIMEOUT,
+    #         # Создаем объект с извлеченными или дефолтными значениями
+    #         return GemmaAnalysis(
+    #             resume=resume_match.group(1) if resume_match else "Не удалось извлечь резюме",
+    #             analysis=analysis_match.group(1) if analysis_match else "Не удалось извлечь анализ",
+    #             grade=int(grade_match.group(1)) if grade_match else 0,
+    #             problems=problems_match.group(1) if problems_match else "Не удалось извлечь проблемы"
     #         )
-    #         t_ana = time.time() - t2
+        
+    #     except Exception as e:
+    #         # Полный фолбек в случае катастрофы
+    #         return GemmaAnalysis(
+    #             resume="Ошибка парсинга ответа",
+    #             analysis=f"Raw answer: {raw_answer[:200]}...",
+    #             grade=0,
+    #             problems=f"Fallback error: {str(e)}"
+    #         )
 
-    #         return {
-    #             "transcript": transcript_text,
-    #             "analysis": answer,
-    #             "timings_sec": {
-    #                 "save": round(t1 - t0, 3),
-    #                 "transcription": round(t_trans, 3),
-    #                 "analysis": round(t_ana, 3),
-    #                 "total": round(time.time() - t0, 3)
-    #             }
-    #         }
+    # def _parse_model_output(self, raw_answer: str) -> GemmaAnalysis:
+    #     try:
+    #         # Пытаемся распарсить основной JSON
+    #         data = json.loads(raw_answer)
+            
+    #         # Если analysis - строка с JSON внутри (проблемный случай)
+    #         if isinstance(data.get('analysis'), str) and data['analysis'].strip().startswith('{'):
+    #             try:
+    #                 # Парсим вложенный JSON
+    #                 nested_data = json.loads(data['analysis'])
+    #                 # Заменяем analysis на текстовое поле из вложенного JSON
+    #                 data['analysis'] = nested_data.get('analysis', '')
+    #                 # Обновляем другие поля если нужно
+    #                 data['resume'] = nested_data.get('resume', data.get('resume', ''))
+    #                 data['grade'] = nested_data.get('grade', data.get('grade', 0))
+    #                 data['problems'] = nested_data.get('problems', data.get('problems', ''))
+    #             except:
+    #                 pass  # Если не получилось - оставляем как есть
+                    
+    #         return GemmaAnalysis(**data)
+        
+    #     except Exception as e:
+    #         return self._fallback_parsing(raw_answer)
+        
+    #     except json.JSONDecodeError:
+    #         # Fallback 1: Ищем JSON внутри текста
+    #         json_match = re.search(r'\{.*\}', raw_answer, re.DOTALL)
+    #         if json_match:
+    #             try:
+    #                 data = json.loads(json_match.group())
+    #                 return GemmaAnalysis(**data)
+    #             except:
+    #                 pass
+            
+    #         # Fallback 2: Пытаемся извлечь данные регулярками
+    #         grade_match = re.search(r'"grade":\s*(\d)', raw_answer)
+    #         resume_match = re.search(r'"resume":\s*"([^"]+)"', raw_answer)
+    #         # ... и т.д. для всех полей
+            
+    #         # Fallback 3: Возвращаем значения по умолчанию с ошибкой
+    #         return GemmaAnalysis(
+    #             resume="Ошибка парсинга ответа",
+    #             analysis=raw_answer[:500],  # первые 500 символов сырого ответа
+    #             grade=0,
+    #             problems="Ответ не в JSON формате"
+    #         )
 
-    #     finally:
-    #         try:
-    #             if os.path.exists(tmp_path):
-    #                 os.remove(tmp_path)
-    #         except Exception:
-    #             pass
-
-#===============================================================================================
     def process_bytes(self, audio_bytes: bytes, filename: Optional[str] = None, 
                      language: Optional[str] = None, beam_size: Optional[int] = None) -> dict:
         """
@@ -235,7 +260,8 @@ class AudioProcessingPipeline:
             )
 
             # Обработка JSON вывода
-            analysis_data = self._parse_model_output(raw_answer)
+           # analysis_data = self._parse_model_output(raw_answer)
+            analysis_data = raw_answer  # уже распаршено в GemmaClient
             t_ana = time.time() - t2
 
             return {
